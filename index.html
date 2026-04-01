@@ -173,6 +173,10 @@ body::before { content: ''; position: fixed; inset: 0; background: radial-gradie
 .toast.show { opacity: 1; transform: translateY(0); }
 .teacher-float { position: fixed; bottom: 24px; left: 24px; background: rgba(26,46,69,0.85); border: 1px solid var(--border); border-radius: 40px; padding: 8px 18px; font-size: 0.78rem; color: var(--muted); cursor: pointer; transition: all var(--transition); backdrop-filter: blur(8px); z-index: 100; }
 .teacher-float:hover { color: var(--teal); border-color: rgba(46,196,182,0.4); }
+.turma-option { display:flex; align-items:center; gap:8px; background:rgba(13,27,42,0.4); border:1px solid var(--border); border-radius:var(--radius); padding:10px 18px; cursor:pointer; transition:all var(--transition); flex:1; justify-content:center; font-size:0.9rem; }
+.turma-option:hover { border-color:rgba(46,196,182,0.5); background:rgba(46,196,182,0.06); }
+.turma-option input[type="radio"] { accent-color:var(--teal); width:16px; height:16px; }
+.turma-option.selected { border-color:var(--teal); background:rgba(46,196,182,0.12); color:var(--teal); }
 @media (max-width: 600px) { .score-ring-area { justify-content: center; text-align: center; } .results-actions { flex-direction: column; } .question-card { padding: 20px; } }
 </style>
 </head>
@@ -229,6 +233,20 @@ body::before { content: ''; position: fixed; inset: 0; background: radial-gradie
           <label>Nome completo</label>
           <input type="text" id="input-name" placeholder="Seu nome completo">
           <div class="error-msg" id="name-error">Por favor, informe seu nome.</div>
+        </div>
+        <div class="form-group">
+          <label>Turma</label>
+          <div style="display:flex; gap:10px; margin-top:4px;">
+            <label class="turma-option" id="label-turma-a" onclick="selectTurma('A')">
+              <input type="radio" name="turma" value="A" id="radio-turma-a">
+              <span>Turma A</span>
+            </label>
+            <label class="turma-option" id="label-turma-b" onclick="selectTurma('B')">
+              <input type="radio" name="turma" value="B" id="radio-turma-b">
+              <span>Turma B</span>
+            </label>
+          </div>
+          <div class="error-msg" id="turma-error">Por favor, selecione sua turma.</div>
         </div>
         <button class="btn btn-primary btn-full" onclick="startApp()">Iniciar atividade →</button>
       </div>
@@ -343,7 +361,7 @@ body::before { content: ''; position: fixed; inset: 0; background: radial-gradie
         </div>
         <div class="table-wrap">
           <table class="panel-table">
-            <thead><tr><th>RA</th><th>Data/Hora</th><th>Desempenho</th></tr></thead>
+            <thead><tr><th>RA</th><th>Nome</th><th>Turma</th><th>Data/Hora</th><th>Desempenho</th></tr></thead>
             <tbody id="teacher-tbody"></tbody>
           </table>
         </div>
@@ -698,7 +716,7 @@ const MODULES = [
 // ============================================================
 // STATE
 // ============================================================
-let state = { ra: '', name: '', currentModule: null, currentQ: 0, answered: false, scores: {}, modulesDone: [] };
+let state = { ra: '', name: '', turma: '', currentModule: null, currentQ: 0, answered: false, scores: {}, modulesDone: [] };
 const TOTAL_Q = MODULES.reduce((acc, m) => acc + m.questions.length, 0);
 
 function showScreen(id) {
@@ -711,17 +729,27 @@ function showScreen(id) {
 function goHome() { showScreen('landing'); }
 function goModules() { renderModules(); showScreen('modules'); }
 
+function selectTurma(t) {
+  document.getElementById('label-turma-a').classList.toggle('selected', t === 'A');
+  document.getElementById('label-turma-b').classList.toggle('selected', t === 'B');
+  document.getElementById('radio-turma-' + t.toLowerCase()).checked = true;
+}
+
 function startApp() {
   const ra = document.getElementById('input-ra').value.trim();
   const name = document.getElementById('input-name').value.trim();
+  const turmaEl = document.querySelector('input[name="turma"]:checked');
+  const turma = turmaEl ? turmaEl.value : '';
   let valid = true;
   document.getElementById('ra-error').style.display = 'none';
   document.getElementById('name-error').style.display = 'none';
+  document.getElementById('turma-error').style.display = 'none';
   if (!ra) { document.getElementById('ra-error').style.display = 'block'; valid = false; }
   if (!name) { document.getElementById('name-error').style.display = 'block'; valid = false; }
+  if (!turma) { document.getElementById('turma-error').style.display = 'block'; valid = false; }
   if (!valid) return;
-  state.ra = ra; state.name = name;
-  document.getElementById('header-ra-text').textContent = ra;
+  state.ra = ra; state.name = name; state.turma = turma;
+  document.getElementById('header-ra-text').textContent = ra + ' · Turma ' + turma;
   document.getElementById('header-ra-badge').style.display = 'flex';
   document.getElementById('quiz-ra-text').textContent = ra;
   renderModules();
@@ -899,7 +927,7 @@ async function saveResult() {
   let totalCorrect = 0;
   MODULES.forEach(m => { totalCorrect += (state.scores[m.id]?.correct || 0); });
   const pct = Math.round((totalCorrect / TOTAL_Q) * 100);
-  const payload = { ra: state.ra, date: new Date().toLocaleString('pt-BR'), pct };
+  const payload = { ra: state.ra, name: state.name, turma: state.turma, date: new Date().toLocaleString('pt-BR'), pct };
   saveLocal(payload);
   if (!APPS_SCRIPT_URL) { showSyncStatus('warn', '⚠ URL do Apps Script não configurada. Resultado salvo localmente.'); return; }
   showSyncStatus('loading', 'Enviando resultado para o Google Sheets...');
@@ -965,15 +993,15 @@ function renderTable(data) {
     const p = typeof r.pct === 'string' ? parseInt(r.pct) : r.pct;
     const cls = p >= 70 ? 'badge-high' : p >= 50 ? 'badge-mid' : 'badge-low';
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${r.ra}</td><td>${r.date}</td><td><span class="badge-score ${cls}">${r.pct}${typeof r.pct === 'number' ? '%' : ''}</span></td>`;
+    tr.innerHTML = `<td>${r.ra}</td><td>${r.name || '—'}</td><td>${r.turma || '—'}</td><td>${r.date}</td><td><span class="badge-score ${cls}">${r.pct}${typeof r.pct === 'number' ? '%' : ''}</span></td>`;
     tbody.appendChild(tr);
   });
 }
 function exportCSV() {
   const data = JSON.parse(localStorage.getItem('cc2_results') || '[]');
   if (!data.length) { showToast('Nenhum dado local para exportar.'); return; }
-  const header = 'RA,Data/Hora,Desempenho\n';
-  const rows = data.map(r => `${r.ra},"${r.date}",${r.pct}%`).join('\n');
+  const header = 'RA,Nome,Turma,Data/Hora,Desempenho\n';
+  const rows = data.map(r => `${r.ra},"${r.name || ''}",${r.turma || ''},"${r.date}",${r.pct}%`).join('\n');
   const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
